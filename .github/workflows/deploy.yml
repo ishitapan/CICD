@@ -1,0 +1,37 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build JAR
+        run: mvn clean package
+
+      - name: Deploy to EC2
+        env:
+          AWS_EC2_HOST: ${{ secrets.AWS_EC2_HOST }}
+          AWS_EC2_USER: ${{ secrets.AWS_EC2_USER }}
+          AWS_EC2_KEY: ${{ secrets.AWS_EC2_KEY }}
+        run: |
+          echo "${AWS_EC2_KEY}" | base64 -d > private_key.pem
+          chmod 600 private_key.pem
+          scp -o StrictHostKeyChecking=no target/*.jar ${AWS_EC2_USER}@${AWS_EC2_HOST}:/home/${AWS_EC2_USER}/app/app.jar
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${AWS_EC2_USER}@${AWS_EC2_HOST} << 'EOF'
+            pkill -f 'java -jar /home/ec2-user/app/app.jar' || true
+            nohup java -jar /home/ec2-user/app/app.jar > /home/ec2-user/app/app.log 2>&1 &
+          EOF
